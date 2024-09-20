@@ -1,4 +1,3 @@
-
 # saashub-scraper-200k-listings
 
 A Node.js-based web scraper designed to extract data from approximately 200,000 SaaS product listings on saashub.com.
@@ -16,6 +15,7 @@ A Node.js-based web scraper designed to extract data from approximately 200,000 
 - Progress tracking with time estimates
 - Outputs data in both CSV and JSON formats
 - Resumable scraping process in case of interruptions
+- Proxy support for enhanced anonymity and avoiding IP blocks
 
 ## Prerequisites
 
@@ -34,6 +34,16 @@ A Node.js-based web scraper designed to extract data from approximately 200,000 
    ```
    npm install
    ```
+
+3. Set up the proxy configuration:
+   - Create a `.env` file in the project root
+   - Add the following proxy configuration (replace with your actual proxy details):
+     ```
+     PROXY_HOST=shared-datacenter.geonode.com
+     PROXY_PORT=9000
+     PROXY_USER=your_username
+     PROXY_PASS=your_password
+     ```
 
 ## Usage
 
@@ -60,6 +70,21 @@ Adjust the following constants in `main.js` to customize the scraper's behavior:
 - `BATCH_SIZE`: Number of URLs to process in each batch
 - `RECORDS_PER_FILE`: Number of records per output file
 - `RATE_LIMIT`: Maximum number of requests per second
+
+## Proxy Configuration
+
+The scraper supports using a proxy to enhance anonymity and avoid IP blocks. To configure the proxy:
+
+1. Ensure you have the required packages installed:
+   ```
+   npm install dotenv https-proxy-agent
+   ```
+
+2. Set up your proxy details in the `.env` file as described in the Installation section.
+
+3. The `fetchSaaSData` function in `main.js` will automatically use the proxy configuration from the `.env` file.
+
+If you need to modify the proxy settings, you can update the `.env` file or change the fallback values in the `fetchSaaSData` function.
 
 ## Output
 
