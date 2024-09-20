@@ -87,7 +87,7 @@ function parseHTML(html, saasName) {
 
 async function fetchSaaSData(url, retries = 3) {
   const proxyHost = process.env.PROXY_HOST || 'shared-datacenter.geonode.com';
-  const proxyPort = process.env.PROXY_PORT || '9000';
+  const proxyPort = Math.floor(Math.random() * 11 + 9000).toString(); //process.env.PROXY_PORT 
   const proxyUser = process.env.PROXY_USER || 'geonode_9JCPZiW1CD';
   const proxyPass = process.env.PROXY_PASS || 'e6c374e4-13ed-4f4a-9ed1-8f31e7920485';
 
