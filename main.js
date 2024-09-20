@@ -203,7 +203,7 @@ async function fetchSaaSData(url, retries = 3) {
   
     try {
       const data = await fetchSaaSData(url);
-      await delay(DELAY);
+    //  await delay(DELAY);
       return { data, error: null };
     } catch (error) {
       console.error(clc.red(`Error processing ${url}: ${error.message}`));
