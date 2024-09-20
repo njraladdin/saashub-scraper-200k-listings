@@ -1,6 +1,6 @@
 # Node modules
 node_modules/
-
+sitemap_xml_files/*.xml
 # Scraping results
 scraping_results/
 

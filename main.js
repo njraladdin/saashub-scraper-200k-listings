@@ -154,6 +154,7 @@ async function fetchSaaSData(url, retries = 3) {
     await csvWriter.writeRecords(data);
   }
   
+  
   async function ensureDirectoryExists(dirPath) {
     try {
       await fs.access(dirPath);
@@ -162,27 +163,15 @@ async function fetchSaaSData(url, retries = 3) {
     }
   }
   
-  const BATCH_SIZE = 100;
   const RECORDS_PER_FILE = 10000;
   const RATE_LIMIT = 5;
   const DELAY = 1000 / RATE_LIMIT;
   
 
 
-  async function getLastProcessedUrl(jsonResultDir) {
-    const files = await fs.readdir(jsonResultDir);
-    const jsonFiles = files.filter(file => file.startsWith('saas_data_') && file.endsWith('.json'));
-    
-    if (jsonFiles.length === 0) return { url: null, fileIndex: 0 };
-  
-    const lastFile = jsonFiles.sort().pop();
-    const fileIndex = parseInt(lastFile.match(/saas_data_(\d+)\.json/)[1]);
-    const data = JSON.parse(await fs.readFile(path.join(jsonResultDir, lastFile), 'utf-8'));
-    
-    if (data.length === 0) return { url: null, fileIndex };
-    
-    return { url: data[data.length - 1].url, fileIndex };
-  }
+
+
+
   let startTime;
 
   async function processUrl(url, index, totalUrls, startIndex) {
@@ -211,40 +200,27 @@ async function fetchSaaSData(url, retries = 3) {
   }
   
   
-  async function processBatch(urls, batchIndex, jsonResultDir, csvResultDir, totalUrls, startIndex, startFileIndex) {
-    const limit = pLimit(RATE_LIMIT);
-    const batchPromises = urls.map((url, index) => 
-      limit(() => processUrl(url, startIndex + batchIndex * BATCH_SIZE + index, totalUrls, startIndex))
-    );
   
-    const batchResults = await Promise.all(batchPromises);
-    const batchData = batchResults.filter(result => result.data).map(result => result.data);
-    const batchErrors = batchResults.filter(result => result.error).map(result => result.error);
   
-    if (batchData.length > 0) {
-      const fileIndex = startFileIndex + Math.floor((batchIndex * BATCH_SIZE) / RECORDS_PER_FILE);
-      const jsonFilePath = path.join(jsonResultDir, `saas_data_${fileIndex}.json`);
-      const csvFilePath = path.join(csvResultDir, `saas_data_${fileIndex}.csv`);
   
-      // Check if the file exists and read its content
-      let existingData = [];
-      try {
-        existingData = JSON.parse(await fs.readFile(jsonFilePath, 'utf-8'));
-      } catch (error) {
-        // File doesn't exist or is empty, which is fine
-      }
+  async function getLastProcessedInfo(jsonResultDir) {
+    const files = await fs.readdir(jsonResultDir);
+    const jsonFiles = files.filter(file => file.startsWith('saas_data_') && file.endsWith('.json'));
+    
+    if (jsonFiles.length === 0) return { url: null, fileIndex: 0, positionInFile: 0 };
   
-      // Append new data to existing data
-      const updatedData = [...existingData, ...batchData];
-  
-      await saveToJSON(updatedData, jsonFilePath);
-      await appendToCSV(batchData, csvFilePath);
-    }
-  
-    return { batchData, batchErrors };
+    const lastFile = jsonFiles.sort().pop();
+    const fileIndex = parseInt(lastFile.match(/saas_data_(\d+)\.json/)[1]);
+    const data = JSON.parse(await fs.readFile(path.join(jsonResultDir, lastFile), 'utf-8'));
+    
+    if (data.length === 0) return { url: null, fileIndex, positionInFile: 0 };
+    
+    return { 
+      url: data[data.length - 1].url, 
+      fileIndex, 
+      positionInFile: data.length
+    };
   }
-  
-  
   
   async function main() {
     console.log(clc.green.bold('Starting the large-scale SaaS scraping process...'));
@@ -258,21 +234,13 @@ async function fetchSaaSData(url, retries = 3) {
       await ensureDirectoryExists(csvResultDir);
       
       const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
-      const allUrls = JSON.parse(allUrlsFile).slice(0, 100); // Only keep the first 100 URLs
-      console.log(clc.blue(`Using ${allUrls.length} URLs for testing.`));
+      const allUrls = JSON.parse(allUrlsFile).slice(0, 60);
+      console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
       
-      const hardcodedUrls = [
-        'https://www.saashub.com/netumo',
-        'https://www.saashub.com/transferslot',
-        'https://www.saashub.com/flippa',
-        'https://www.saashub.com/shopify',
-        'https://www.saashub.com/Arcadier',
-        'https://www.saashub.com/odoo',
-        'https://www.saashub.com/DirectIQ'
-      ];
-      const urlsToScrape = [...new Set([...hardcodedUrls, ...allUrls])];
+     
+      const urlsToScrape = [...new Set(allUrls)];
   
-      const { url: lastProcessedUrl, fileIndex: startFileIndex } = await getLastProcessedUrl(jsonResultDir);
+      const { url: lastProcessedUrl, fileIndex: startFileIndex, positionInFile: startPositionInFile } = await getLastProcessedInfo(jsonResultDir);
       let startIndex = 0;
       if (lastProcessedUrl) {
         const lastProcessedIndex = urlsToScrape.indexOf(lastProcessedUrl);
@@ -280,7 +248,7 @@ async function fetchSaaSData(url, retries = 3) {
           if (lastProcessedIndex === urlsToScrape.length - 1) {
             console.log(clc.yellow('All URLs in the current set have already been processed.'));
             console.log(clc.green.bold('Scraping process complete. No new URLs to process.'));
-            return; // Exit the function early
+            return;
           }
           startIndex = lastProcessedIndex + 1;
           console.log(clc.magenta(`Resuming from URL: ${urlsToScrape[startIndex]}`));
@@ -291,17 +259,63 @@ async function fetchSaaSData(url, retries = 3) {
   
       const totalUrls = urlsToScrape.length;
       const remainingUrls = totalUrls - startIndex;
-      const totalBatches = Math.ceil(remainingUrls / BATCH_SIZE);
       let allErrors = [];
   
       startTime = Date.now();
   
-      for (let i = 0; i < totalBatches; i++) {
-        console.log(clc.yellow(`Processing batch ${i + 1} of ${totalBatches}`));
-        const batchUrls = urlsToScrape.slice(startIndex + i * BATCH_SIZE, startIndex + (i + 1) * BATCH_SIZE);
-        const { batchErrors } = await processBatch(batchUrls, i, jsonResultDir, csvResultDir, totalUrls, startIndex, startFileIndex);
-        
-        allErrors = allErrors.concat(batchErrors);
+      const limit = pLimit(RATE_LIMIT);
+      let currentFileIndex = startFileIndex;
+      let currentFileData = [];
+  
+      // If resuming, load the existing data from the last file
+      if (startPositionInFile > 0) {
+        const lastFilePath = path.join(jsonResultDir, `saas_data_${currentFileIndex}.json`);
+        currentFileData = JSON.parse(await fs.readFile(lastFilePath, 'utf-8'));
+      }
+  
+      const processUrlsConcurrently = async () => {
+        const promises = urlsToScrape.slice(startIndex).map((url, index) => 
+          limit(() => processUrl(url, startIndex + index, totalUrls, startIndex))
+        );
+  
+        let processedCount = 0;
+        for await (const result of promises) {
+          if (result.data) {
+            currentFileData.push(result.data);
+            if (currentFileData.length >= RECORDS_PER_FILE) {
+              await saveToJSON(currentFileData, path.join(jsonResultDir, `saas_data_${currentFileIndex}.json`));
+              await appendToCSV(currentFileData, path.join(csvResultDir, `saas_data_${currentFileIndex}.csv`));
+              currentFileData = [];
+              currentFileIndex++;
+            }
+          } else if (result.error) {
+            allErrors.push(result.error);
+          }
+  
+          processedCount++;
+          // Progress update every 100 URLs
+          if (processedCount % 100 === 0) {
+            const currentTime = Date.now();
+            const elapsedTime = (currentTime - startTime) / 1000;
+            const percentComplete = (processedCount / remainingUrls * 100).toFixed(2);
+            const estimatedTotalTime = (elapsedTime / processedCount) * remainingUrls;
+            const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
+  
+            console.log(
+              clc.cyan(`[${percentComplete}%] Processed ${processedCount}/${remainingUrls} URLs`) +
+              clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
+              clc.green(` | Remaining: ${formatTime(remainingTime)}`)
+            );
+          }
+        }
+      };
+  
+      await processUrlsConcurrently();
+  
+      // Save any remaining data
+      if (currentFileData.length > 0) {
+        await saveToJSON(currentFileData, path.join(jsonResultDir, `saas_data_${currentFileIndex}.json`));
+        await appendToCSV(currentFileData, path.join(csvResultDir, `saas_data_${currentFileIndex}.csv`));
       }
       
       const totalTime = (Date.now() - startTime) / 1000;
@@ -323,7 +337,6 @@ async function fetchSaaSData(url, retries = 3) {
       console.error(clc.red.bold('An unexpected error occurred during the scraping process:'), error);
     }
   }
-
   
   function formatTime(seconds) {
     const hours = Math.floor(seconds / 3600);
