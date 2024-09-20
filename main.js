@@ -105,7 +105,6 @@ async function fetchSaaSData(url, retries = 3) {
           'dnt': '1', 
           'pragma': 'no-cache', 
           'priority': 'u=0, i', 
-          'referer': 'https://www.upwork.com/', 
           'sec-ch-ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"', 
           'sec-ch-ua-mobile': '?0', 
           'sec-ch-ua-platform': '"Windows"', 
@@ -120,6 +119,7 @@ async function fetchSaaSData(url, retries = 3) {
           return status < 500; // Resolve only if the status code is less than 500
       },
       httpsAgent: httpsAgent, // Add the proxy agent to the config
+      timeout: 10000, // Add 10 seconds timeout
   };
 
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -176,7 +176,7 @@ async function fetchSaaSData(url, retries = 3) {
   }
   
   const RECORDS_PER_FILE = 10000;
-  const RATE_LIMIT = 5;
+  const RATE_LIMIT = 10;
   const DELAY = 1000 / RATE_LIMIT;
   
 
