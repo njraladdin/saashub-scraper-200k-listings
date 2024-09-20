@@ -246,7 +246,7 @@ async function fetchSaaSData(url, retries = 3) {
       await ensureDirectoryExists(csvResultDir);
       
       const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
-      const allUrls = JSON.parse(allUrlsFile).slice(0, 20);
+      const allUrls = JSON.parse(allUrlsFile);
       console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
       
      
