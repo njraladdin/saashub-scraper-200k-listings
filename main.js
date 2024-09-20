@@ -177,7 +177,7 @@ async function fetchSaaSData(url, retries = 3) {
   
   const RECORDS_PER_FILE = 10000;
   const RATE_LIMIT = 10;
-  const DELAY = 100;
+  const DELAY = 10;
   
 
 
