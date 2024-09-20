@@ -1,0 +1,36 @@
+# Node modules
+node_modules/
+
+# Scraping results
+scraping_results/
+
+# Sitemap URLs (if these are dynamically generated)
+sitemap_urls/
+
+# Log files
+*.log
+
+# Environment variables
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+
+# CSV and JSON files in the root directory (if these are output files)
+/*.csv
+/*.json
+
+# Keep package.json and package-lock.json
+!package.json
+!package-lock.json
