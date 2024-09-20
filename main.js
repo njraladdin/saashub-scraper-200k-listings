@@ -1,4 +1,6 @@
+require('dotenv').config();
 const axios = require('axios');
+const HttpsProxyAgent = require('https-proxy-agent');
 const cheerio = require('cheerio');
 const fs = require('fs').promises;
 const path = require('path');
@@ -84,57 +86,67 @@ function parseHTML(html, saasName) {
 
 
 async function fetchSaaSData(url, retries = 3) {
-    let config = {
+  const proxyHost = process.env.PROXY_HOST || 'shared-datacenter.geonode.com';
+  const proxyPort = process.env.PROXY_PORT || '9000';
+  const proxyUser = process.env.PROXY_USER || 'geonode_9JCPZiW1CD';
+  const proxyPass = process.env.PROXY_PASS || 'e6c374e4-13ed-4f4a-9ed1-8f31e7920485';
+
+  const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
+  const httpsAgent = new HttpsProxyAgent(proxyUrl);
+
+  let config = {
       method: 'get',
       maxBodyLength: Infinity,
       url: url,
       headers: { 
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7', 
-        'accept-language': 'en-US,en;q=0.9,be;q=0.8,ar;q=0.7', 
-        'cache-control': 'no-cache', 
-        'dnt': '1', 
-        'pragma': 'no-cache', 
-        'priority': 'u=0, i', 
-        'referer': 'https://www.upwork.com/', 
-        'sec-ch-ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"', 
-        'sec-ch-ua-mobile': '?0', 
-        'sec-ch-ua-platform': '"Windows"', 
-        'sec-fetch-dest': 'document', 
-        'sec-fetch-mode': 'navigate', 
-        'sec-fetch-site': 'same-origin', 
-        'sec-fetch-user': '?1', 
-        'upgrade-insecure-requests': '1', 
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36', 
+          'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7', 
+          'accept-language': 'en-US,en;q=0.9,be;q=0.8,ar;q=0.7', 
+          'cache-control': 'no-cache', 
+          'dnt': '1', 
+          'pragma': 'no-cache', 
+          'priority': 'u=0, i', 
+          'referer': 'https://www.upwork.com/', 
+          'sec-ch-ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"', 
+          'sec-ch-ua-mobile': '?0', 
+          'sec-ch-ua-platform': '"Windows"', 
+          'sec-fetch-dest': 'document', 
+          'sec-fetch-mode': 'navigate', 
+          'sec-fetch-site': 'same-origin', 
+          'sec-fetch-user': '?1', 
+          'upgrade-insecure-requests': '1', 
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36', 
       },
       validateStatus: function (status) {
-        return status < 500; // Resolve only if the status code is less than 500
-      }
-    };
-  
-    for (let attempt = 1; attempt <= retries; attempt++) {
+          return status < 500; // Resolve only if the status code is less than 500
+      },
+      httpsAgent: httpsAgent, // Add the proxy agent to the config
+  };
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await axios.request(config);
-        if (response.status === 200) {
-          const saasName = url.split('/').pop();
-          const parsedData = parseHTML(response.data, saasName);
-          return parsedData;
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      } catch (error) {
-        if (attempt === retries) {
-          if (error.response) {
-            throw new Error(`HTTP error! status: ${error.response.status}`);
-          } else if (error.request) {
-            throw new Error('No response received from the server');
-          } else {
-            throw error;
+          const response = await axios.request(config);
+          if (response.status === 200) {
+              const saasName = url.split('/').pop();
+              const parsedData = parseHTML(response.data, saasName);
+              return parsedData;
           }
-        }
-        console.log(clc.yellow(`Attempt ${attempt} failed for ${url}. Retrying...`));
-        await delay(DELAY * attempt); // Exponential backoff
+          throw new Error(`HTTP error! status: ${response.status}`);
+      } catch (error) {
+          if (attempt === retries) {
+              if (error.response) {
+                  throw new Error(`HTTP error! status: ${error.response.status}`);
+              } else if (error.request) {
+                  throw new Error('No response received from the server');
+              } else {
+                  throw error;
+              }
+          }
+          console.log(clc.yellow(`Attempt ${attempt} failed for ${url}. Retrying...`));
+          await delay(DELAY * attempt); // Exponential backoff
       }
-    }
   }
+}
+
   
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   
@@ -234,7 +246,7 @@ async function fetchSaaSData(url, retries = 3) {
       await ensureDirectoryExists(csvResultDir);
       
       const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
-      const allUrls = JSON.parse(allUrlsFile).slice(0, 60);
+      const allUrls = JSON.parse(allUrlsFile).slice(0, 20);
       console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
       
      
