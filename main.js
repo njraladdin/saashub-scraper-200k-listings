@@ -23,7 +23,19 @@ function parseHTML(html, saasName) {
     url: `https://www.saashub.com/${saasName}`,
     LogoURL: $('figure.image.is-96x96 img').attr('src'),
     CompanyName: $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > h2 > span').text().trim(),
-    Website: $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > div.space-y-4.mt-4 > div.flex.mt-4 > div.flex-1.flex.flex-wrap.gap-2 > a.btn.btn--hero.btn--success.track-event').attr('href'),
+    Website: (() => {
+      const websiteLink = $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > div.space-y-4.mt-4 > div.flex.mt-4 > div.flex-1.flex.flex-wrap.gap-2 > a.btn.btn--hero.btn--success.track-event').attr('href');
+      if (websiteLink) return websiteLink;
+      const websiteButton = $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > div.space-y-4.mt-4 > div.flex.mt-4 > div.flex-1.flex.flex-wrap.gap-2 > button.btn.btn--hero.btn--success.track-event');
+      if (websiteButton.length) {
+        const onclickAttr = websiteButton.attr('onclick');
+        if (onclickAttr) {
+          const match = onclickAttr.match(/window\.open\('(.+?)'\)/);
+          if (match) return match[1];
+        }
+      }
+      return null;
+    })(),
     CompanyDescription: $('h3.text-lg.font-normal.mb-2').text().trim(),
     rating: $('.service-rating b').text() || '0',
     'Number of reviews': (() => {
@@ -245,7 +257,48 @@ async function fetchSaaSData(url, retries = 3) {
     }
   }
   
-
+  function sanitySaaSOk(data) {
+    const requiredFields = [
+      { name: 'Website', errorMsg: 'Website URL is missing' },
+      { name: 'CompanyDescription', errorMsg: 'Company description is missing' },
+      { name: 'AlternativesPageURL', errorMsg: 'Alternatives page URL is missing' },
+      { name: 'StatusPageURL', errorMsg: 'Status page URL is missing' }
+    ];
+  
+    const errors = [];
+  
+    for (const field of requiredFields) {
+      if (!data[field.name] || data[field.name] === '') {
+        errors.push(field.errorMsg);
+      }
+    }
+  
+    // Additional check for Website field to ensure it's a valid URL
+    if (data.Website && !isValidURL(data.Website)) {
+      errors.push('Website URL is not valid');
+    }
+  
+    if (errors.length > 0) {
+      return {
+        isValid: false,
+        errors: errors
+      };
+    }
+  
+    return {
+      isValid: true
+    };
+  }
+  
+  // Helper function to validate URL
+  function isValidURL(string) {
+    try {
+      new URL(string);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   async function processUrl(url, index, totalUrls, startIndex) {
     const currentTime = Date.now();
@@ -264,8 +317,14 @@ async function fetchSaaSData(url, retries = 3) {
   
     try {
       const data = await fetchSaaSData(url);
-    //  await delay(DELAY);
+      const sanityCheckResult = sanitySaaSOk(data);
+      if (!sanityCheckResult.isValid) {
+        console.error(clc.red(`Sanity check failed for ${url}: ${sanityCheckResult.errors.join(', ')}`));
+        return { data: null, error: { url, error: `Sanity check failed: ${sanityCheckResult.errors.join(', ')}` } };
+      }
       return { data, error: null };
+  
+    //  await delay(DELAY);
     } catch (error) {
       console.error(clc.red(`Error processing ${url}: ${error.message}`));
       return { data: null, error: { url, error: error.message } };
@@ -296,7 +355,7 @@ async function fetchSaaSData(url, retries = 3) {
   }
 
   
-  const MAX_URLS = 500
+  const MAX_URLS = 100
   const TEST_URLS = [
 //  "https://www.saashub.com/shopify"  ,
 //  "https://www.saashub.com/similarweb"
