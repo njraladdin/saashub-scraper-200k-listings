@@ -9,13 +9,21 @@ const { createObjectCsvWriter } = require('csv-writer');
 const pLimit = require('p-limit');
 const clc = require('cli-color');
 
+
+
+const RECORDS_PER_FILE = 10000;
+const RATE_LIMIT = 10;
+const DELAY = 10;
+
+let startTime;
+
 function parseHTML(html, saasName) {
   const $ = cheerio.load(html);
   const data = {
     url: `https://www.saashub.com/${saasName}`,
     LogoURL: $('figure.image.is-96x96 img').attr('src'),
     CompanyName: $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > h2 > span').text().trim(),
-    Website: $('a.track-event[data-ref="hero-pricing"]').attr('href'),
+    Website: $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > div.space-y-4.mt-4 > div.flex.mt-4 > div.flex-1.flex.flex-wrap.gap-2 > a.btn.btn--hero.btn--success.track-event').attr('href'),
     CompanyDescription: $('h3.text-lg.font-normal.mb-2').text().trim(),
     rating: $('.service-rating b').text() || '0',
     'Number of reviews': (() => {
@@ -28,24 +36,81 @@ function parseHTML(html, saasName) {
       .map((i, el) => $(el).text().trim())
       .filter((text) => text !== "Official Pricing")
       .get().join('; '),
-    pricingURL: $('a.track-event[data-ref="hero-pricing"]').attr('href'),
+    pricingURL: (() => {
+      const pricingList = $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > div.space-y-4.mt-4 > div:nth-child(2) > ul');
+      let pricingURL = null;
+      pricingList.find('li').each((index, element) => {
+        const anchor = $(element).find('a');
+        if (anchor.length && anchor.text().includes('Pricing')) {
+          pricingURL = anchor.attr('href');
+          return false; // Break the loop
+        }
+      });
+      return pricingURL ? encodeURI(pricingURL) : null;
+    })(),
     platforms: $('body > section.hero.is-primary > div > div > div.flex-columns > div.flex-1 > div.space-y-4.mt-4 > div:nth-child(3) > ul li span')
       .map((i, el) => $(el).text().trim())
       .get().join(', '),
-    AlternativesPageURL: $(`a[href="/${saasName}-alternatives"]`).attr('href') ? `https://www.saashub.com${$(`a[href="/${saasName}-alternatives"]`).attr('href')}` : null,
-    StatusPageURL: 'https://status.netumo.com' + ($('a[href*="transferslot-status"]').attr('href') || ''),
-    RSSFeedURL: $('a[href*="articles"]').attr('href'),
-    LinkedIn: $('a[href*="linkedin.com"]').attr('href'),
-    GooglePlayURL: $('a[href*="play.google.com"]').attr('href'),
-    GithubURL: $('a[href*="github.com"]').attr('href') || null,
-    FacebookURL: $('a[href*="facebook.com"]').attr('href') || null,
-    InstagramURL: $('a[href*="instagram.com"]').attr('href') || null,
-    CrunchbaseURL: $('a[href*="crunchbase.com"]').attr('href') || null,
-    TwitterURL: $('a[href*="twitter.com"]').attr('href') || null,
+    AlternativesPageURL: (() => {
+      const alternativesLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).text().includes('Alternatives')).attr('href');
+      return alternativesLink ? `https://www.saashub.com${alternativesLink}` : null;
+    })(),
+    StatusPageURL: (() => {
+      const statusLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).text().includes('Status')).attr('href');
+      if (!statusLink) return null;
+      return statusLink.startsWith('http') ? statusLink : `https://www.saashub.com${statusLink}`;
+    })(),
+    RSSFeedURL: (() => {
+      const blogLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.includes('Blog')).attr('href');
+      if (!blogLink) return null;
+      return blogLink.startsWith('http') ? blogLink : `https://www.saashub.com${blogLink}`;
+    })(),
+    LinkedIn: (() => {
+      const linkedInLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('linkedin')).attr('href');
+      if (!linkedInLink) return null;
+      return linkedInLink.startsWith('http') ? linkedInLink : `https://www.saashub.com${linkedInLink}`;
+    })(),
+    GooglePlayURL: (() => {
+      const googlePlayLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('google play')).attr('href');
+      if (!googlePlayLink) return null;
+      return googlePlayLink.startsWith('http') ? googlePlayLink : `https://www.saashub.com${googlePlayLink}`;
+    })(),
+    GithubURL: (() => {
+      const githubLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('github')).attr('href');
+      if (!githubLink) return null;
+      return githubLink.startsWith('http') ? githubLink : `https://www.saashub.com${githubLink}`;
+    })(),
+    FacebookURL: (() => {
+      const facebookLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('facebook')).attr('href');
+      if (!facebookLink) return null;
+      return facebookLink.startsWith('http') ? facebookLink : `https://www.saashub.com${facebookLink}`;
+    })(),
+    InstagramURL: (() => {
+      const instagramLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('instagram')).attr('href');
+      if (!instagramLink) return null;
+      return instagramLink.startsWith('http') ? instagramLink : `https://www.saashub.com${instagramLink}`;
+    })(),
+    CrunchbaseURL: (() => {
+      const crunchbaseLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('crunchbase')).attr('href');
+      if (!crunchbaseLink) return null;
+      return crunchbaseLink.startsWith('http') ? crunchbaseLink : `https://www.saashub.com${crunchbaseLink}`;
+    })(),
+    TwitterURL: (() => {
+      const twitterLink = $('div.flex-1.flex.flex-wrap.gap-2 a').filter((i, el) => $(el).attr('title')?.toLowerCase().includes('twitter')).attr('href');
+      if (!twitterLink) return null;
+      return twitterLink.startsWith('http') ? twitterLink : `https://www.saashub.com${twitterLink}`;
+    })(),
     'Verified?': $('span.badge-verified').length > 0 ? 'Yes' : 'No',
     tags: $('.tag-links a').map((i, el) => $(el).text().trim()).get().join(', '),
-    Categories: $('nav.breadcrumbs ol li:nth-child(2) a span').text().trim(),
-    RelatedCategories: $('nav.breadcrumbs ol li:nth-child(3) a span').text().trim(),
+    Categories: (() => {
+      const category = $('nav.breadcrumbs ol li:nth-child(2) a span').text().trim();
+      const relatedCategory = $('nav.breadcrumbs ol li:nth-child(3) a span').text().trim();
+      if (category && relatedCategory) {
+        return `${category}, ${relatedCategory}`;
+      } else {
+        return category || relatedCategory || null;
+      }
+    })(),
     Img1: $('figure.screenshot img').attr('src'),
     Img2: $('figure.screenshot:nth-child(2) img').attr('src') || null,
     Img3: $('figure.screenshot:nth-child(3) img').attr('src') || null,
@@ -71,15 +136,20 @@ function parseHTML(html, saasName) {
     'External source: Text1': $('.boxed#external-reviews .space-y-2 .description').first().text().trim(),
     'External source: AnchorText1': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').first().text().trim(),
     'External source: AnchorLink1': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').first().attr('href'),
-    'External source: Title2': null,
-    'External source: Text2': null,
-    'External source: AnchorText2': null,
-    'External source: AnchorLink2': null,
-    'External source: Title3': null,
-    'External source: Text3': null,
-    'External source: AnchorText3': null,
-    'External source: AnchorLink3': null,
-    'Q&A': $('.boxed.boxed--more-space#questions ol').html()?.trim() || null
+    'External source: Title2': $('.boxed#external-reviews .space-y-2 strong a').eq(1).text().trim() || null,
+    'External source: Text2': $('.boxed#external-reviews .space-y-2 .description').eq(1).text().trim() || null,
+    'External source: AnchorText2': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').eq(1).text().trim() || null,
+    'External source: AnchorLink2': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').eq(1).attr('href') || null,
+    'External source: Title3': $('.boxed#external-reviews .space-y-2 strong a').eq(2).text().trim() || null,
+    'External source: Text3': $('.boxed#external-reviews .space-y-2 .description').eq(2).text().trim() || null,
+    'External source: AnchorText3': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').eq(2).text().trim() || null,
+    'External source: AnchorLink3': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').eq(2).attr('href') || null,
+    'Q&A': $('.boxed.boxed--more-space#questions ol').html()?.trim() || null,
+    'Social Recommendations & Mentions Text': (() => {
+      const mentionsDiv = $('#mentions > div').text().trim();
+      const mentionsUl = $('#mentions > ul').text().trim();
+      return mentionsDiv && mentionsUl ? `${mentionsDiv}\n${mentionsUl}` : (mentionsDiv || mentionsUl || null);
+    })(),
   };
   return data;
 }
@@ -175,16 +245,7 @@ async function fetchSaaSData(url, retries = 3) {
     }
   }
   
-  const RECORDS_PER_FILE = 10000;
-  const RATE_LIMIT = 10;
-  const DELAY = 10;
-  
 
-
-
-
-
-  let startTime;
 
   async function processUrl(url, index, totalUrls, startIndex) {
     const currentTime = Date.now();
@@ -233,7 +294,15 @@ async function fetchSaaSData(url, retries = 3) {
       positionInFile: data.length
     };
   }
+
   
+  const MAX_URLS = 500
+  const TEST_URLS = [
+//  "https://www.saashub.com/shopify"  ,
+//  "https://www.saashub.com/similarweb"
+
+
+];
   async function main() {
     console.log(clc.green.bold('Starting the large-scale SaaS scraping process...'));
     
@@ -245,13 +314,16 @@ async function fetchSaaSData(url, retries = 3) {
       await ensureDirectoryExists(jsonResultDir);
       await ensureDirectoryExists(csvResultDir);
       
-      const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
-      const allUrls = JSON.parse(allUrlsFile);
-      console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
-      
-     
-      const urlsToScrape = [...new Set(allUrls)];
-  
+      let urlsToScrape;
+      if (TEST_URLS.length > 0) {
+        console.log(clc.blue(`Using ${TEST_URLS.length} test URLs for processing.`));
+        urlsToScrape = TEST_URLS;
+      } else {
+        const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
+        const allUrls = MAX_URLS ? JSON.parse(allUrlsFile).slice(0, MAX_URLS) : JSON.parse(allUrlsFile);
+        console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
+        urlsToScrape = [...new Set(allUrls)];
+      }  
       const { url: lastProcessedUrl, fileIndex: startFileIndex, positionInFile: startPositionInFile } = await getLastProcessedInfo(jsonResultDir);
       let startIndex = 0;
       if (lastProcessedUrl) {
