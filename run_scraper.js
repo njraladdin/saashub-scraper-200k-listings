@@ -345,7 +345,7 @@ async function fetchSaaSData(url, retries = 3) {
   }
 
   
-  const MAX_URLS = 100
+  const MAX_URLS = 0
   const TEST_URLS = [
 //  "https://www.saashub.com/shopify"  ,
 //  "https://www.saashub.com/similarweb"
