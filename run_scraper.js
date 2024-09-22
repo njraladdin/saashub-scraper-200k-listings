@@ -165,11 +165,7 @@ function parseHTML(html, saasName) {
     'External source: AnchorText3': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').eq(2).text().trim() || null,
     'External source: AnchorLink3': $('.boxed#external-reviews .space-y-2 .text-sm.text-links.italic b a').eq(2).attr('href') || null,
     'Q&A': $('.boxed.boxed--more-space#questions ol').html()?.trim() || null,
-    'Social Recommendations & Mentions Text': (() => {
-      const mentionsDiv = $('#mentions > div').text().trim();
-      const mentionsUl = $('#mentions > ul').text().trim();
-      return mentionsDiv && mentionsUl ? `${mentionsDiv}\n${mentionsUl}` : (mentionsDiv || mentionsUl || null);
-    })(),
+    'Social Recommendations & Mentions Text': $('#mentions > ul').prop('outerHTML') || null,
   };
   return data;
 }
