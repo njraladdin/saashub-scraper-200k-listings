@@ -396,6 +396,9 @@ async function fetchSaaSData(url, retries = 3) {
         const allUrls = MAX_URLS ? JSON.parse(allUrlsFile).slice(0, MAX_URLS) : JSON.parse(allUrlsFile);
         console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
         urlsToScrape = [...new Set(allUrls)];
+
+      console.log(clc.blue(`Number of URLs to process: ${urlsToScrape.length}`));
+      logger.info(`Number of URLs to process: ${urlsToScrape.length}`);
       }  
       const { url: lastProcessedUrl, fileIndex: startFileIndex, positionInFile: startPositionInFile } = await getLastProcessedInfo(jsonResultDir);
       let startIndex = 0;
