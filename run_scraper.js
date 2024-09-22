@@ -332,8 +332,8 @@ async function fetchSaaSData(url, retries = 3) {
 ];
 
 
-const BATCH_SIZE = 5000;
-const RECORDS_PER_FILE = 5000;
+const BATCH_SIZE = 100;
+const RECORDS_PER_FILE = 100;
 const RATE_LIMIT = 30;
 const DELAY = 10;
 async function getLastProcessedInfo(jsonResultDir) {
@@ -345,18 +345,30 @@ async function getLastProcessedInfo(jsonResultDir) {
     return { lastUrl: null, processedCount: 0 };
   }
 }
+function getCSVHeaders(data) {
+  if (data.length === 0) return '';
+  return Object.keys(data[0]).join(',') + '\n';
+}
+
 async function saveData(data, jsonResultDir, csvResultDir, fileIndex) {
   const jsonPath = path.join(jsonResultDir, `saas_data_${fileIndex}.json`);
   const csvPath = path.join(csvResultDir, `saas_data_${fileIndex}.csv`);
 
+  // Save JSON data
   await fs.writeFile(jsonPath, JSON.stringify(data, null, 2));
   
-  const csvContent = data.map(item => Object.values(item).join(',')).join('\n');
-  await fs.writeFile(csvPath, csvContent);
+  // Prepare CSV content with headers
+  const csvHeaders = getCSVHeaders(data);
+  const csvWriter = createObjectCsvWriter({
+    path: csvPath,
+    header: Object.keys(data[0]).map(key => ({ id: key, title: key }))
+  });
+
+  // Save CSV data
+  await csvWriter.writeRecords(data);
 
   console.log(clc.green(`Saved file: saas_data_${fileIndex}`));
 }
-
 
 async function getUrlsToScrape(sitemapDir) {
   const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
