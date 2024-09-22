@@ -321,25 +321,7 @@ async function fetchSaaSData(url, retries = 3) {
   
   
   
-  async function getLastProcessedInfo(jsonResultDir) {
-    const files = await fs.readdir(jsonResultDir);
-    const jsonFiles = files.filter(file => file.startsWith('saas_data_') && file.endsWith('.json'));
-    
-    if (jsonFiles.length === 0) return { url: null, fileIndex: 0, positionInFile: 0 };
-  
-    const lastFile = jsonFiles.sort().pop();
-    const fileIndex = parseInt(lastFile.match(/saas_data_(\d+)\.json/)[1]);
-    const data = JSON.parse(await fs.readFile(path.join(jsonResultDir, lastFile), 'utf-8'));
-    
-    if (data.length === 0) return { url: null, fileIndex, positionInFile: 0 };
-    
-    return { 
-      url: data[data.length - 1].url, 
-      fileIndex, 
-      positionInFile: data.length
-    };
-  }
-
+ 
   
   const MAX_URLS = 0
   const TEST_URLS = [
@@ -351,10 +333,36 @@ async function fetchSaaSData(url, retries = 3) {
 
 
 const BATCH_SIZE = 1000;
-const RECORDS_PER_FILE = 5000;
+const RECORDS_PER_FILE = 100;
 const RATE_LIMIT = 30;
 const DELAY = 10;
+async function getLastProcessedInfo(jsonResultDir) {
+  const files = await fs.readdir(jsonResultDir);
+  const jsonFiles = files.filter(file => file.startsWith('saas_data_') && file.endsWith('.json'));
+  
+  if (jsonFiles.length === 0) return { lastUrl: null, nextFileIndex: 0, positionInFile: 0 };
 
+  const lastFile = jsonFiles.sort((a, b) => {
+    return parseInt(a.match(/saas_data_(\d+)\.json/)[1]) - parseInt(b.match(/saas_data_(\d+)\.json/)[1]);
+  }).pop();
+  
+  const fileIndex = parseInt(lastFile.match(/saas_data_(\d+)\.json/)[1]);
+  const data = JSON.parse(await fs.readFile(path.join(jsonResultDir, lastFile), 'utf-8'));
+  
+  if (data.length === 0) return { lastUrl: null, nextFileIndex: fileIndex, positionInFile: 0 };
+  
+  return { 
+    lastUrl: data[data.length - 1].url, 
+    nextFileIndex: fileIndex + (data.length === RECORDS_PER_FILE ? 1 : 0),
+    positionInFile: data.length % RECORDS_PER_FILE
+  };
+}
+async function saveData(data, jsonResultDir, csvResultDir, fileIndex) {
+  await fs.writeFile(path.join(jsonResultDir, `saas_data_${fileIndex}.json`), JSON.stringify(data, null, 2));
+  
+  const csvData = data.map(item => Object.values(item).join(',')).join('\n');
+  await fs.writeFile(path.join(csvResultDir, `saas_data_${fileIndex}.csv`), csvData);
+}
 
 
 async function getUrlsToScrape(sitemapDir) {
@@ -375,13 +383,16 @@ async function run_scraper() {
     await ensureDirectoryExists(csvResultDir);
     
     let urlsToScrape = await getUrlsToScrape(sitemapDir);
-    const { startIndex, currentFileIndex } = await getResumeInfo(jsonResultDir, urlsToScrape);
+    const { lastUrl, nextFileIndex, positionInFile } = await getLastProcessedInfo(jsonResultDir);
+
+    let startIndex = lastUrl ? urlsToScrape.indexOf(lastUrl) + 1 : 0;
+    if (startIndex === -1) startIndex = 0;
 
     const totalUrls = urlsToScrape.length;
     const remainingUrls = totalUrls - startIndex;
     let allErrors = [];
     let processedCount = 0;
-    let fileIndex = currentFileIndex;
+    let fileIndex = nextFileIndex;
 
     const startTime = Date.now();
     
@@ -392,9 +403,6 @@ async function run_scraper() {
       fileIndex = newFileIndex;
       allErrors.push(...errors);
       processedCount += processedInBatch;
-
-      // Save last processed info after each batch
-      await saveLastProcessedInfo(jsonResultDir, urlsToScrape[i + processedInBatch - 1], fileIndex);
     }
 
     console.log(clc.green.bold('\nAll URLs processed.'));
@@ -403,6 +411,7 @@ async function run_scraper() {
     console.error(clc.red.bold('An unexpected error occurred during the scraping process:'), error);
   }
 }
+
 async function saveLastProcessedInfo(jsonResultDir, url, fileIndex) {
   const infoPath = path.join(jsonResultDir, 'last_processed_info.json');
   const infoData = JSON.stringify({ url, fileIndex });
@@ -432,7 +441,7 @@ async function getResumeInfo(jsonResultDir, urlsToScrape) {
     return { startIndex: 0, currentFileIndex: 0 };
   }
 }
-async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex, jsonResultDir, csvResultDir, currentFileIndex, startTime, totalProcessed) {
+async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex, jsonResultDir, csvResultDir, fileIndex, startTime, totalProcessed) {
   const limit = pLimit(RATE_LIMIT);
   let currentFileData = [];
   let errors = [];
@@ -440,11 +449,9 @@ async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex
 
   const saveDataIfNeeded = async () => {
     if (currentFileData.length >= RECORDS_PER_FILE) {
-      const dataToSave = currentFileData.slice(0, RECORDS_PER_FILE);
-      await saveToJSON(dataToSave, path.join(jsonResultDir, `saas_data_${currentFileIndex}.json`));
-      await appendToCSV(dataToSave, path.join(csvResultDir, `saas_data_${currentFileIndex}.csv`));
+      await saveData(currentFileData.slice(0, RECORDS_PER_FILE), jsonResultDir, csvResultDir, fileIndex);
       currentFileData = currentFileData.slice(RECORDS_PER_FILE);
-      currentFileIndex++;
+      fileIndex++;
     }
   };
 
@@ -489,19 +496,16 @@ async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex
     });
   });
 
-  // Wait for all URLs in the batch to be processed
   await Promise.all(processingPromises);
 
   // Save any remaining data
   if (currentFileData.length > 0) {
-    await saveToJSON(currentFileData, path.join(jsonResultDir, `saas_data_${currentFileIndex}.json`));
-    await appendToCSV(currentFileData, path.join(csvResultDir, `saas_data_${currentFileIndex}.csv`));
-    currentFileIndex++;
+    await saveData(currentFileData, jsonResultDir, csvResultDir, fileIndex);
+    fileIndex++;
   }
 
-  return { newFileIndex: currentFileIndex, errors, processedInBatch };
+  return { newFileIndex: fileIndex, errors, processedInBatch };
 }
-
 
 
 function logFinalStats(startTime, remainingUrls, allErrors) {
