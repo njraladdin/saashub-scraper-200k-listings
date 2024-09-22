@@ -479,15 +479,22 @@ async function processBatch(batch, batchStartIndex, totalUrls, jsonResultDir, cs
         // Log progress
         const currentTime = Date.now();
         const elapsedTime = (currentTime - startTime) / 1000;
-        const percentComplete = ((overallIndex + 1) / totalUrls * 100).toFixed(2);
-        const estimatedTotalTime = (elapsedTime / (overallIndex + 1)) * totalUrls;
+        const currentProcessed = processedCount + localProcessedCount;
+        const percentComplete = ((currentProcessed) / totalUrls * 100).toFixed(2);
+        const estimatedTotalTime = (elapsedTime / currentProcessed) * totalUrls;
         const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
 
         console.log(
-          clc.cyan(`[${percentComplete}%] Processing URL ${overallIndex + 1}/${totalUrls}: ${url}`) +
+          clc.cyan(`[${percentComplete}%] Processing URL ${currentProcessed}/${totalUrls}: ${url}`) +
           clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
           clc.green(` | Remaining: ${formatTime(remainingTime)}`)
         );
+
+        // Add the requested logging feature
+        if (currentProcessed % 100 === 0) {
+          const logMessage = `[${percentComplete}%] Processed ${currentProcessed}/${totalUrls} URLs | Elapsed: ${formatTime(elapsedTime)} | Remaining: ${formatTime(remainingTime)}`;
+          logger.info(logMessage);
+        }
 
         return result;
       } catch (error) {
