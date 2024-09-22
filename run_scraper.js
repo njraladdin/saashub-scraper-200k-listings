@@ -332,36 +332,29 @@ async function fetchSaaSData(url, retries = 3) {
 ];
 
 
-const BATCH_SIZE = 1000;
-const RECORDS_PER_FILE = 100;
+const BATCH_SIZE = 5000;
+const RECORDS_PER_FILE = 5000;
 const RATE_LIMIT = 30;
 const DELAY = 10;
 async function getLastProcessedInfo(jsonResultDir) {
-  const files = await fs.readdir(jsonResultDir);
-  const jsonFiles = files.filter(file => file.startsWith('saas_data_') && file.endsWith('.json'));
-  
-  if (jsonFiles.length === 0) return { lastUrl: null, nextFileIndex: 0, positionInFile: 0 };
-
-  const lastFile = jsonFiles.sort((a, b) => {
-    return parseInt(a.match(/saas_data_(\d+)\.json/)[1]) - parseInt(b.match(/saas_data_(\d+)\.json/)[1]);
-  }).pop();
-  
-  const fileIndex = parseInt(lastFile.match(/saas_data_(\d+)\.json/)[1]);
-  const data = JSON.parse(await fs.readFile(path.join(jsonResultDir, lastFile), 'utf-8'));
-  
-  if (data.length === 0) return { lastUrl: null, nextFileIndex: fileIndex, positionInFile: 0 };
-  
-  return { 
-    lastUrl: data[data.length - 1].url, 
-    nextFileIndex: fileIndex + (data.length === RECORDS_PER_FILE ? 1 : 0),
-    positionInFile: data.length % RECORDS_PER_FILE
-  };
+  const infoPath = path.join(jsonResultDir, 'last_processed_info.json');
+  try {
+    const infoData = await fs.readFile(infoPath, 'utf-8');
+    return JSON.parse(infoData);
+  } catch (error) {
+    return { lastUrl: null, processedCount: 0 };
+  }
 }
 async function saveData(data, jsonResultDir, csvResultDir, fileIndex) {
-  await fs.writeFile(path.join(jsonResultDir, `saas_data_${fileIndex}.json`), JSON.stringify(data, null, 2));
+  const jsonPath = path.join(jsonResultDir, `saas_data_${fileIndex}.json`);
+  const csvPath = path.join(csvResultDir, `saas_data_${fileIndex}.csv`);
+
+  await fs.writeFile(jsonPath, JSON.stringify(data, null, 2));
   
-  const csvData = data.map(item => Object.values(item).join(',')).join('\n');
-  await fs.writeFile(path.join(csvResultDir, `saas_data_${fileIndex}.csv`), csvData);
+  const csvContent = data.map(item => Object.values(item).join(',')).join('\n');
+  await fs.writeFile(csvPath, csvContent);
+
+  console.log(clc.green(`Saved file: saas_data_${fileIndex}`));
 }
 
 
@@ -372,7 +365,7 @@ async function getUrlsToScrape(sitemapDir) {
   return [...new Set(allUrls)];
 }
 async function run_scraper() {
-  console.log(clc.green.bold('Starting the optimized large-scale SaaS scraping process...'));
+  console.log(clc.green.bold('Starting the simplified large-scale SaaS scraping process...'));
   
   const jsonResultDir = path.join(__dirname, 'scraping_results');
   const csvResultDir = path.join(__dirname, 'scraping_results');
@@ -383,38 +376,55 @@ async function run_scraper() {
     await ensureDirectoryExists(csvResultDir);
     
     let urlsToScrape = await getUrlsToScrape(sitemapDir);
-    const { lastUrl, nextFileIndex, positionInFile } = await getLastProcessedInfo(jsonResultDir);
+    const { lastUrl, processedCount: startProcessedCount } = await getLastProcessedInfo(jsonResultDir);
 
     let startIndex = lastUrl ? urlsToScrape.indexOf(lastUrl) + 1 : 0;
     if (startIndex === -1) startIndex = 0;
 
     const totalUrls = urlsToScrape.length;
-    const remainingUrls = totalUrls - startIndex;
     let allErrors = [];
-    let processedCount = 0;
-    let fileIndex = nextFileIndex;
+    let processedCount = startProcessedCount;
+    let currentData = [];
 
     const startTime = Date.now();
     
     for (let i = startIndex; i < totalUrls; i += BATCH_SIZE) {
       const batch = urlsToScrape.slice(i, i + BATCH_SIZE);
-      const { newFileIndex, errors, processedInBatch } = await processBatch(batch, i, totalUrls, startIndex, jsonResultDir, csvResultDir, fileIndex, startTime, processedCount);
+      const { processedInBatch, errors, currentData: newData } = await processBatch(batch, i, totalUrls, jsonResultDir, csvResultDir, processedCount, startTime);
       
-      fileIndex = newFileIndex;
       allErrors.push(...errors);
       processedCount += processedInBatch;
+      currentData.push(...newData);
+
+      // Save any full batches of data
+      while (currentData.length >= RECORDS_PER_FILE) {
+        const fileIndex = Math.floor(processedCount / RECORDS_PER_FILE) - 1;
+        await saveData(currentData.slice(0, RECORDS_PER_FILE), jsonResultDir, csvResultDir, fileIndex);
+        currentData = currentData.slice(RECORDS_PER_FILE);
+      }
+
+      // Update last processed info
+      await saveLastProcessedInfo(jsonResultDir, urlsToScrape[i + processedInBatch - 1], processedCount);
+    }
+
+    // Save any remaining data
+    if (currentData.length > 0) {
+      const fileIndex = Math.floor(processedCount / RECORDS_PER_FILE);
+      await saveData(currentData, jsonResultDir, csvResultDir, fileIndex);
     }
 
     console.log(clc.green.bold('\nAll URLs processed.'));
-    logFinalStats(startTime, remainingUrls, allErrors);
+    logFinalStats(startTime, totalUrls - startIndex, allErrors);
   } catch (error) {
     console.error(clc.red.bold('An unexpected error occurred during the scraping process:'), error);
   }
 }
 
-async function saveLastProcessedInfo(jsonResultDir, url, fileIndex) {
+
+
+async function saveLastProcessedInfo(jsonResultDir, lastUrl, processedCount) {
   const infoPath = path.join(jsonResultDir, 'last_processed_info.json');
-  const infoData = JSON.stringify({ url, fileIndex });
+  const infoData = JSON.stringify({ lastUrl, processedCount });
   await fs.writeFile(infoPath, infoData);
 }
 async function getResumeInfo(jsonResultDir, urlsToScrape) {
@@ -441,19 +451,11 @@ async function getResumeInfo(jsonResultDir, urlsToScrape) {
     return { startIndex: 0, currentFileIndex: 0 };
   }
 }
-async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex, jsonResultDir, csvResultDir, fileIndex, startTime, totalProcessed) {
+async function processBatch(batch, batchStartIndex, totalUrls, jsonResultDir, csvResultDir, processedCount, startTime) {
   const limit = pLimit(RATE_LIMIT);
-  let currentFileData = [];
+  let currentData = [];
   let errors = [];
-  let processedInBatch = 0;
-
-  const saveDataIfNeeded = async () => {
-    if (currentFileData.length >= RECORDS_PER_FILE) {
-      await saveData(currentFileData.slice(0, RECORDS_PER_FILE), jsonResultDir, csvResultDir, fileIndex);
-      currentFileData = currentFileData.slice(RECORDS_PER_FILE);
-      fileIndex++;
-    }
-  };
+  let localProcessedCount = 0;
 
   const processingPromises = batch.map((url, index) => {
     return limit(async () => {
@@ -462,18 +464,23 @@ async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex
         const overallIndex = batchStartIndex + index;
         
         if (result.data) {
-          currentFileData.push(result.data);
-          await saveDataIfNeeded();
+          currentData.push(result.data);
+          localProcessedCount++;
+
+          if (currentData.length >= RECORDS_PER_FILE) {
+            const fileIndex = Math.floor((processedCount + localProcessedCount) / RECORDS_PER_FILE) - 1;
+            await saveData(currentData, jsonResultDir, csvResultDir, fileIndex);
+            currentData = [];
+          }
         } else if (result.error) {
           errors.push(result.error);
         }
 
-        processedInBatch++;
-        const currentProcessed = totalProcessed + processedInBatch;
+        // Log progress
         const currentTime = Date.now();
         const elapsedTime = (currentTime - startTime) / 1000;
-        const percentComplete = ((overallIndex + 1 - overallStartIndex) / (totalUrls - overallStartIndex) * 100).toFixed(2);
-        const estimatedTotalTime = (elapsedTime / (overallIndex + 1 - overallStartIndex)) * (totalUrls - overallStartIndex);
+        const percentComplete = ((overallIndex + 1) / totalUrls * 100).toFixed(2);
+        const estimatedTotalTime = (elapsedTime / (overallIndex + 1)) * totalUrls;
         const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
 
         console.log(
@@ -481,12 +488,6 @@ async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex
           clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
           clc.green(` | Remaining: ${formatTime(remainingTime)}`)
         );
-        if (currentProcessed % 100 === 0) {
-          const logMessage = `[${percentComplete}%] Processed ${currentProcessed}/${totalUrls - overallStartIndex} URLs | Elapsed: ${formatTime(elapsedTime)} | Remaining: ${formatTime(remainingTime)}`;
-
-          logger.info(logMessage);
-
-        }
 
         return result;
       } catch (error) {
@@ -498,20 +499,15 @@ async function processBatch(batch, batchStartIndex, totalUrls, overallStartIndex
 
   await Promise.all(processingPromises);
 
-  // Save any remaining data
-  if (currentFileData.length > 0) {
-    await saveData(currentFileData, jsonResultDir, csvResultDir, fileIndex);
-    fileIndex++;
-  }
-
-  return { newFileIndex: fileIndex, errors, processedInBatch };
+  return { processedInBatch: localProcessedCount, errors, currentData };
 }
 
 
-function logFinalStats(startTime, remainingUrls, allErrors) {
+
+function logFinalStats(startTime, processedUrls, allErrors) {
   const totalTime = (Date.now() - startTime) / 1000;
   console.log(clc.blue(`Total time taken: ${formatTime(totalTime)}`));
-  console.log(clc.blue(`Total SaaS products successfully processed: ${remainingUrls - allErrors.length}`));
+  console.log(clc.blue(`Total SaaS products successfully processed: ${processedUrls - allErrors.length}`));
   
   if (allErrors.length > 0) {
     console.log(clc.red('\nErrors encountered:'));
@@ -520,11 +516,11 @@ function logFinalStats(startTime, remainingUrls, allErrors) {
     });
     
     const errorLogPath = path.join(__dirname, 'error_log.json');
-    saveToJSON(allErrors, errorLogPath);
-    console.log(clc.yellow(`Error log saved to: ${errorLogPath}`));
+    fs.writeFile(errorLogPath, JSON.stringify(allErrors, null, 2))
+      .then(() => console.log(clc.yellow(`Error log saved to: ${errorLogPath}`)))
+      .catch(err => console.error(clc.red(`Failed to save error log: ${err.message}`)));
   }
 }
-
 function formatTime(seconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
