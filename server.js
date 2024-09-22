@@ -126,7 +126,13 @@ app.get('/', async (req, res) => {
 });
 
 const PORT = 8080;
-
+const logMemoryUsage = () => {
+    const used = process.memoryUsage();
+    console.log(`Memory usage: ${Math.round(used.rss / 1024 / 1024)} MB`);
+  };
+  
+  // Call this function periodically in your script
+  setInterval(logMemoryUsage, 10000); // Log every minute
 server.listen(PORT, () => {
     const ipAddress = getIPAddress();
     console.log(`Server is running on port ${PORT}`);
