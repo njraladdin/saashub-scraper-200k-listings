@@ -332,8 +332,8 @@ async function fetchSaaSData(url, retries = 3) {
 ];
 
 
-const BATCH_SIZE = 100;
-const RECORDS_PER_FILE = 100;
+const BATCH_SIZE = 5000;
+const RECORDS_PER_FILE = 5000;
 const RATE_LIMIT = 30;
 const DELAY = 10;
 async function getLastProcessedInfo(jsonResultDir) {
