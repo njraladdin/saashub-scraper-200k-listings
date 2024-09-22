@@ -8,12 +8,23 @@ const { Parser } = require('json2csv');
 const { createObjectCsvWriter } = require('csv-writer');
 const pLimit = require('p-limit');
 const clc = require('cli-color');
+const winston = require('winston');
 
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: path.join(__dirname, 'scraper.log') })
+  ]
+});
 
 
 const RECORDS_PER_FILE = 10000;
 const RATE_LIMIT = 10;
-const DELAY = 10;
+const DELAY = 100;
 
 let startTime;
 
@@ -308,7 +319,9 @@ async function fetchSaaSData(url, retries = 3) {
     const percentComplete = ((adjustedIndex + 1) / adjustedTotal * 100).toFixed(2);
     const estimatedTotalTime = (elapsedTime / (adjustedIndex + 1)) * adjustedTotal;
     const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
-  
+    // logger.info(
+    //   `[${percentComplete}%] Processing URL ${adjustedIndex + 1}/${adjustedTotal}: ${url} | Elapsed: ${formatTime(elapsedTime)} | Remaining: ${formatTime(remainingTime)}`
+    // );
     console.log(
       clc.cyan(`[${percentComplete}%] Processing URL ${adjustedIndex + 1}/${adjustedTotal}: ${url}`) +
       clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
@@ -355,14 +368,15 @@ async function fetchSaaSData(url, retries = 3) {
   }
 
   
-  const MAX_URLS = 100
+  const MAX_URLS = 0
   const TEST_URLS = [
 //  "https://www.saashub.com/shopify"  ,
 //  "https://www.saashub.com/similarweb"
 
 
 ];
-  async function main() {
+  async function run_scraper() {
+    
     console.log(clc.green.bold('Starting the large-scale SaaS scraping process...'));
     
     const jsonResultDir = path.join(__dirname, 'scraping_results');
@@ -444,11 +458,14 @@ async function fetchSaaSData(url, retries = 3) {
             const estimatedTotalTime = (elapsedTime / processedCount) * remainingUrls;
             const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
   
-            console.log(
-              clc.cyan(`[${percentComplete}%] Processed ${processedCount}/${remainingUrls} URLs`) +
-              clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
-              clc.green(` | Remaining: ${formatTime(remainingTime)}`)
-            );
+            const logMessage = `[${percentComplete}%] Processed ${processedCount}/${remainingUrls} URLs | Elapsed: ${formatTime(elapsedTime)} | Remaining: ${formatTime(remainingTime)}`;
+            logger.info(logMessage);
+// Also keep the console log for immediate visibility
+console.log(
+  clc.cyan(`[${percentComplete}%] Processed ${processedCount}/${remainingUrls} URLs`) +
+  clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
+  clc.green(` | Remaining: ${formatTime(remainingTime)}`)
+);
           }
         }
       };
@@ -488,5 +505,4 @@ async function fetchSaaSData(url, retries = 3) {
     return `${hours}h ${minutes}m ${remainingSeconds}s`;
   }
   
-  main();
-  
+module.exports = run_scraper;
