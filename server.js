@@ -2,12 +2,27 @@ const express = require('express');
 const http = require('http');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 const run_scraper = require('./run_scraper');  // Import the main function from main.js
 
 const app = express();
 const server = http.createServer(app);
 
 const LOG_FILE = path.join(__dirname, 'scraper.log');
+
+function getIPAddress() {
+    const interfaces = os.networkInterfaces();
+    for (const devName in interfaces) {
+        const iface = interfaces[devName];
+        for (let i = 0; i < iface.length; i++) {
+            const alias = iface[i];
+            if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
+                return alias.address;
+            }
+        }
+    }
+    return '0.0.0.0';
+}
 
 function parseLogEntry(logEntry) {
     try {
@@ -113,8 +128,11 @@ app.get('/', async (req, res) => {
 const PORT = 8080;
 
 server.listen(PORT, () => {
+    const ipAddress = getIPAddress();
     console.log(`Server is running on port ${PORT}`);
-    console.log(`Server is running at http://localhost:${PORT}`);
+    console.log(`Access the log viewer at:`);
+    console.log(`- Local: http://localhost:${PORT}`);
+    console.log(`- Network: http://${ipAddress}:${PORT}`);
     
     // Start the scraper
     run_scraper().catch(console.error);
