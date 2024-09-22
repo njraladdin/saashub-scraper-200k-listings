@@ -101,7 +101,6 @@ function processUrl(url) {
   }
   return url;
 }
-
 // Function to merge all JSON files, apply processing, and remove duplicates
 async function mergeJsonFilesWithProcessing() {
   const jsonFiles = fs.readdirSync(sitemap_urls).filter(file => file.endsWith('.json'));
@@ -125,13 +124,15 @@ async function mergeJsonFilesWithProcessing() {
   }
 
   const uniqueUrls = Array.from(urlSet)
-    .filter(url => url !== 'https://www.saashub.com' && url !== 'https://www.saashub.com/status-pages');
+    .filter(url => url !== 'https://www.saashub.com' && url !== 'https://www.saashub.com/status-pages')
+    .filter(url => !(url.includes('best-') && url.includes('-software'))) // Filter out URLs containing both 'best-' and '-software'
+    .filter(url => !url.includes('sitemap/')); // Filter out URLs containing 'sitemap/'
+
   fs.writeFileSync(path.join(sitemap_urls, 'all_urls.json'), JSON.stringify(uniqueUrls, null, 2));
 
   console.log(`Total unique URLs after processing: ${uniqueUrls.length}`);
   return uniqueUrls.length;
 }
-
 // Main function to orchestrate the process
 async function main() {
   for (let i = 0; i < sitemapUrls.length; i++) {
