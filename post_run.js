@@ -88,35 +88,41 @@ const postRunChecks = () => {
 
 
 
-function zipJsonFiles() {
+function zipResultFiles() {
   const scrapingResultsDir = path.join(__dirname, 'scraping_results');
-  const outputZip = path.join(scrapingResultsDir, 'json_result.zip');
+  const jsonOutputZip = path.join(scrapingResultsDir, 'json_result.zip');
+  const csvOutputZip = path.join(scrapingResultsDir, 'csv_result.zip');
 
-  const output = fs.createWriteStream(outputZip);
-  const archive = archiver('zip', {
-    zlib: { level: 9 } // Sets the compression level.
-  });
+  function createArchive(outputZip, fileExtension) {
+    const output = fs.createWriteStream(outputZip);
+    const archive = archiver('zip', {
+      zlib: { level: 9 } // Sets the compression level.
+    });
 
-  output.on('close', function() {
-    console.log(`${archive.pointer()} total bytes`);
-    console.log('Archiver has been finalized and the output file descriptor has closed.');
-  });
+    output.on('close', function() {
+      console.log(`${archive.pointer()} total bytes for ${fileExtension} files`);
+      console.log(`Archiver for ${fileExtension} files has been finalized and the output file descriptor has closed.`);
+    });
 
-  archive.on('error', function(err) {
-    throw err;
-  });
+    archive.on('error', function(err) {
+      throw err;
+    });
 
-  archive.pipe(output);
+    archive.pipe(output);
 
-  // Read all files in the directory
-  fs.readdirSync(scrapingResultsDir).forEach(file => {
-    if (path.extname(file).toLowerCase() === '.json') {
-      const filePath = path.join(scrapingResultsDir, file);
-      archive.file(filePath, { name: file });
-    }
-  });
+    // Read all files in the directory
+    fs.readdirSync(scrapingResultsDir).forEach(file => {
+      if (path.extname(file).toLowerCase() === fileExtension) {
+        const filePath = path.join(scrapingResultsDir, file);
+        archive.file(filePath, { name: file });
+      }
+    });
 
-  archive.finalize();
+    archive.finalize();
+  }
+
+  createArchive(jsonOutputZip, '.json');
+  createArchive(csvOutputZip, '.csv');
 }
 
 zipJsonFiles();
