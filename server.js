@@ -145,7 +145,9 @@ app.get('/download/json', (req, res) => {
     res.download(file, 'json_result.zip', (err) => {
         if (err) {
             console.error('Error downloading JSON zip file:', err);
-            res.status(500).send('Error downloading JSON zip file: ' + err.message);
+            if (!res.headersSent) {
+                res.status(500).send('Error downloading JSON zip file: ' + err.message);
+            }
         }
     });
 });
@@ -155,7 +157,9 @@ app.get('/download/csv', (req, res) => {
     res.download(file, 'csv_result.zip', (err) => {
         if (err) {
             console.error('Error downloading CSV zip file:', err);
-            res.status(500).send('Error downloading CSV zip file: ' + err.message);
+            if (!res.headersSent) {
+                res.status(500).send('Error downloading CSV zip file: ' + err.message);
+            }
         }
     });
 });
