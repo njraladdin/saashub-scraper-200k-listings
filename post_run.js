@@ -94,6 +94,12 @@ function zipResultFiles() {
   const csvOutputZip = path.join(scrapingResultsDir, 'csv_result.zip');
 
   function createArchive(outputZip, fileExtension) {
+    // Remove existing zip file if it exists
+    if (fs.existsSync(outputZip)) {
+      fs.unlinkSync(outputZip);
+      console.log(`Removed existing ${outputZip}`);
+    }
+
     const output = fs.createWriteStream(outputZip);
     const archive = archiver('zip', {
       zlib: { level: 9 } // Sets the compression level.
@@ -125,4 +131,4 @@ function zipResultFiles() {
   createArchive(csvOutputZip, '.csv');
 }
 
-zipJsonFiles();
+zipResultFiles();
