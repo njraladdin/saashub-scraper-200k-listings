@@ -12,7 +12,7 @@ sitemap_urls/
 
 # Environment variables
 .env
-
+rerun_urls.json 
 # OS generated files
 .DS_Store
 Thumbs.db
