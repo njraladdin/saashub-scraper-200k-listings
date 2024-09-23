@@ -124,22 +124,61 @@ app.get('/', async (req, res) => {
         res.status(500).send('Error reading logs: ' + error.message);
     }
 });
-
 const PORT = 8080;
 const logMemoryUsage = () => {
     const used = process.memoryUsage();
     console.log(`Memory usage: ${Math.round(used.rss / 1024 / 1024)} MB`);
-  };
-  
-  // Call this function periodically in your script
-  setInterval(logMemoryUsage, 10000); // Log every minute
+};
+
+app.get('/run_scraper', async (req, res) => {
+    try {
+        await run_scraper();
+        res.send('Scraper started successfully.');
+    } catch (error) {
+        console.error('Error starting scraper:', error);
+        res.status(500).send('Error starting scraper: ' + error.message);
+    }
+});
+
+app.get('/download/json', (req, res) => {
+    const file = path.join(__dirname, 'scraping_results', 'json_result.zip');
+    res.download(file, 'json_result.zip', (err) => {
+        if (err) {
+            console.error('Error downloading JSON zip file:', err);
+            res.status(500).send('Error downloading JSON zip file: ' + err.message);
+        }
+    });
+});
+
+app.get('/download/csv', (req, res) => {
+    const file = path.join(__dirname, 'scraping_results', 'csv_result.zip');
+    res.download(file, 'csv_result.zip', (err) => {
+        if (err) {
+            console.error('Error downloading CSV zip file:', err);
+            res.status(500).send('Error downloading CSV zip file: ' + err.message);
+        }
+    });
+});
+
+// Call this function periodically in your script
+setInterval(logMemoryUsage, 10000); // Log every minute
 server.listen(PORT, () => {
     const ipAddress = getIPAddress();
     console.log(`Server is running on port ${PORT}`);
     console.log(`Access the log viewer at:`);
     console.log(`- Local: http://localhost:${PORT}`);
     console.log(`- Network: http://${ipAddress}:${PORT}`);
-    
-    // Start the scraper
-    run_scraper().catch(console.error);
+
+    // Log all possible GET endpoints
+    const getEndpoints = [
+        '/',
+        '/run_scraper',
+        '/download/json',
+        '/download/csv'
+    ];
+    console.log('Available GET endpoints:');
+    getEndpoints.forEach(endpoint => {
+        console.log(`- http://${ipAddress}:${PORT}${endpoint}`);
+    });
 });
+
