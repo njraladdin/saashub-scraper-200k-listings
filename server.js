@@ -149,13 +149,22 @@ app.get('/download/json', (req, res) => {
         }
     });
 });
-
 app.get('/download/csv', (req, res) => {
     const file = path.join(__dirname, 'scraping_results', 'csv_result.zip');
     res.download(file, 'csv_result.zip', (err) => {
         if (err) {
             console.error('Error downloading CSV zip file:', err);
             res.status(500).send('Error downloading CSV zip file: ' + err.message);
+        }
+    });
+});
+
+app.get('/download/all', (req, res) => {
+    const file = path.join(__dirname, 'scraping_results', 'all.zip');
+    res.download(file, 'all.zip', (err) => {
+        if (err) {
+            console.error('Error downloading all zip file:', err);
+            res.status(500).send('Error downloading all zip file: ' + err.message);
         }
     });
 });
@@ -174,7 +183,8 @@ server.listen(PORT, () => {
         '/',
         '/run_scraper',
         '/download/json',
-        '/download/csv'
+        '/download/csv',
+        '/download/all'
     ];
     console.log('Available GET endpoints:');
     getEndpoints.forEach(endpoint => {
