@@ -6,14 +6,9 @@ const { createGunzip } = require('zlib');
 const { stringify } = require('csv-stringify');
 const archiver = require('archiver');
 
-const folderPath = path.join(__dirname, 'scraping_results');
-const outputCsvPath = path.join(folderPath, 'all.csv');
-const outputTwoColumnsCsvPath = path.join(folderPath, 'all_two_columns.csv');
-const outputZipPath = path.join(folderPath, 'all.zip');
-
 async function* readJsonFiles(directory) {
   const files = await fs.readdir(directory);
-  const jsonFiles = files.filter(file => file.endsWith('.json') && file !== 'last_processed_info.json');
+  const jsonFiles = files.filter(file => file.endsWith('.json'));
   
   for (const file of jsonFiles) {
     const filePath = path.join(directory, file);
@@ -26,22 +21,22 @@ async function* readJsonFiles(directory) {
   }
 }
 
-async function processData() {
+async function consolidateJsonToCsv(inputDirectory) {
+  const outputCsvPath = path.join(inputDirectory, 'all.csv');
+  const outputZipPath = path.join(inputDirectory, 'all.zip');
+
+  console.log(`\nStarting consolidation process...`);
+  console.log(`Input directory: ${inputDirectory}`);
+  console.log(`CSV will be saved to: ${outputCsvPath}`);
+  console.log(`ZIP will be saved to: ${outputZipPath}\n`);
+
   const csvStream = stringify({ header: true });
   const csvOutput = createWriteStream(outputCsvPath);
   csvStream.pipe(csvOutput);
 
-  const twoColumnsCsvStream = stringify({ header: true });
-  const twoColumnsCsvOutput = createWriteStream(outputTwoColumnsCsvPath);
-  twoColumnsCsvStream.pipe(twoColumnsCsvOutput);
-
   let count = 0;
-  for await (const item of readJsonFiles(folderPath)) {
+  for await (const item of readJsonFiles(inputDirectory)) {
     csvStream.write(item);
-    twoColumnsCsvStream.write({
-      saashub_url: item.url,
-      Website: item.Website
-    });
 
     count++;
     if (count % 1000 === 0) {
@@ -50,9 +45,8 @@ async function processData() {
   }
 
   csvStream.end();
-  twoColumnsCsvStream.end();
 
-  console.log('CSV files have been saved');
+  console.log(`\nCSV file has been saved to: ${outputCsvPath}`);
 
   await new Promise((resolve) => {
     const output = createWriteStream(outputZipPath);
@@ -61,7 +55,8 @@ async function processData() {
     });
 
     output.on('close', () => {
-      console.log(`all.zip has been created, total bytes: ${archive.pointer()}`);
+      console.log(`ZIP archive has been created at: ${outputZipPath}`);
+      console.log(`Total ZIP size: ${(archive.pointer() / 1024 / 1024).toFixed(2)} MB`);
       resolve();
     });
 
@@ -71,9 +66,22 @@ async function processData() {
 
     archive.pipe(output);
     archive.file(outputCsvPath, { name: 'all.csv' });
-    archive.file(outputTwoColumnsCsvPath, { name: 'all_two_columns.csv' });
     archive.finalize();
   });
+
+  return {
+    csvPath: outputCsvPath,
+    zipPath: outputZipPath
+  };
 }
 
-processData().catch(console.error);
+// Export the function
+module.exports = {
+  consolidateJsonToCsv
+};
+
+// Only run if called directly
+if (require.main === module) {
+  const scrapingResultsPath = path.join(__dirname, 'scraping_results');
+  consolidateJsonToCsv(scrapingResultsPath).catch(console.error);
+}

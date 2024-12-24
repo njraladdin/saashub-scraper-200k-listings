@@ -4,26 +4,9 @@ const HttpsProxyAgent = require('https-proxy-agent');
 const cheerio = require('cheerio');
 const fs = require('fs').promises;
 const path = require('path');
-const { Parser } = require('json2csv');
 const { createObjectCsvWriter } = require('csv-writer');
 const pLimit = require('p-limit');
 const clc = require('cli-color');
-const winston = require('winston');
-
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: path.join(__dirname, 'scraper.log') })
-  ]
-});
-
-
-
-let startTime;
 
 function parseHTML(html, saasName) {
   const $ = cheerio.load(html);
@@ -170,12 +153,11 @@ function parseHTML(html, saasName) {
   return data;
 }
 
-
-async function fetchSaaSData(url, retries = 3) {
-  const proxyHost = process.env.PROXY_HOST || 'shared-datacenter.geonode.com';
-  const proxyPort = Math.floor(Math.random() * 11 + 9000).toString(); //process.env.PROXY_PORT 
-  const proxyUser = process.env.PROXY_USER || 'geonode_9JCPZiW1CD';
-  const proxyPass = process.env.PROXY_PASS || 'e6c374e4-13ed-4f4a-9ed1-8f31e7920485';
+async function fetchSaaSData(url, retries = 3, delayMs = 10) {
+  const proxyHost = process.env.PROXY_HOST ;
+  const proxyPort = process.env.PROXY_PORT
+  const proxyUser = process.env.PROXY_USER ;
+  const proxyPass = process.env.PROXY_PASS;
 
   const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
   const httpsAgent = new HttpsProxyAgent(proxyUrl);
@@ -228,243 +210,94 @@ async function fetchSaaSData(url, retries = 3) {
               }
           }
           console.log(clc.yellow(`Attempt ${attempt} failed for ${url}. Retrying...`));
-          await delay(DELAY * attempt); // Exponential backoff
+          await delay(delayMs * attempt); // Use the provided delay parameter
       }
   }
 }
 
-  
-  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-  
-  async function saveToJSON(data, filePath) {
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
-  }
-  
-  async function appendToCSV(data, filePath) {
-    const fileExists = await fs.access(filePath).then(() => true).catch(() => false);
-    
-    const csvWriter = createObjectCsvWriter({
-      path: filePath,
-      header: Object.keys(data[0]).map(key => ({ id: key, title: key })),
-      append: fileExists
-    });
-  
-    await csvWriter.writeRecords(data);
-  }
-  
-  
-  async function ensureDirectoryExists(dirPath) {
-    try {
-      await fs.access(dirPath);
-    } catch (error) {
-      await fs.mkdir(dirPath, { recursive: true });
-    }
-  }
-  
-  function sanitySaaSOk(data) {
-    const requiredFields = [
-      { name: 'Website', errorMsg: 'Website URL is missing' },
-      { name: 'CompanyDescription', errorMsg: 'Company description is missing' },
-      { name: 'AlternativesPageURL', errorMsg: 'Alternatives page URL is missing' },
-      { name: 'StatusPageURL', errorMsg: 'Status page URL is missing' }
-    ];
-  
-    const errors = [];
-  
-    for (const field of requiredFields) {
-      if (!data[field.name] || data[field.name] === '') {
-        errors.push(field.errorMsg);
-      }
-    }
-  
-    // Additional check for Website field to ensure it's a valid URL
-    if (data.Website && !isValidURL(data.Website)) {
-      errors.push('Website URL is not valid');
-    }
-  
-    if (errors.length > 0) {
-      return {
-        isValid: false,
-        errors: errors
-      };
-    }
-  
-    return {
-      isValid: true
-    };
-  }
-  
-  // Helper function to validate URL
-  function isValidURL(string) {
-    try {
-      new URL(string);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  async function processUrl(url) {
-    try {
-      const data = await fetchSaaSData(url);
-      const sanityCheckResult = sanitySaaSOk(data);
-      if (!sanityCheckResult.isValid) {
-        console.error(clc.red(`Sanity check failed for ${url}: ${sanityCheckResult.errors.join(', ')}`));
-        return { data: null, error: { url, error: `Sanity check failed: ${sanityCheckResult.errors.join(', ')}` } };
-      }
-      return { data, error: null };
-    } catch (error) {
-      console.error(clc.red(`Error processing ${url}: ${error.message}`));
-      return { data: null, error: { url, error: error.message } };
-    }
-  }
-  
-  
-  
- 
-  
-  const MAX_URLS = 0
-  const TEST_URLS = [
-//  "https://www.saashub.com/shopify"  ,
-//  "https://www.saashub.com/similarweb"
-
-
-];
-
-
-const BATCH_SIZE = 5000;
-const RECORDS_PER_FILE = 5000;
-const RATE_LIMIT = 30;
-const DELAY = 10;
-async function getLastProcessedInfo(jsonResultDir) {
-  const infoPath = path.join(jsonResultDir, 'last_processed_info.json');
+async function ensureDirectoryExists(dirPath) {
   try {
-    const infoData = await fs.readFile(infoPath, 'utf-8');
-    return JSON.parse(infoData);
+    await fs.access(dirPath);
   } catch (error) {
-    return { lastUrl: null, processedCount: 0 };
+    await fs.mkdir(dirPath, { recursive: true });
   }
 }
-function getCSVHeaders(data) {
-  if (data.length === 0) return '';
-  return Object.keys(data[0]).join(',') + '\n';
+
+function sanitySaaSOk(data) {
+  const requiredFields = [
+    { name: 'Website', errorMsg: 'Website URL is missing' },
+    { name: 'CompanyDescription', errorMsg: 'Company description is missing' },
+    { name: 'AlternativesPageURL', errorMsg: 'Alternatives page URL is missing' },
+    { name: 'StatusPageURL', errorMsg: 'Status page URL is missing' }
+  ];
+
+  const errors = [];
+  for (const field of requiredFields) {
+    if (!data[field.name] || data[field.name] === '') {
+      errors.push(field.errorMsg);
+    }
+  }
+
+  if (data.Website && !isValidURL(data.Website)) {
+    errors.push('Website URL is not valid');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors: errors
+  };
+}
+
+function isValidURL(string) {
+  try {
+    new URL(string);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function processUrl(url) {
+  try {
+    const data = await fetchSaaSData(url);
+    const sanityCheckResult = sanitySaaSOk(data);
+    if (!sanityCheckResult.isValid) {
+      console.error(clc.red(`Sanity check failed for ${url}: ${sanityCheckResult.errors.join(', ')}`));
+      return { data: null, error: { url, error: `Sanity check failed: ${sanityCheckResult.errors.join(', ')}` } };
+    }
+    return { data, error: null };
+  } catch (error) {
+    console.error(clc.red(`Error processing ${url}: ${error.message}`));
+    return { data: null, error: { url, error: error.message } };
+  }
 }
 
 async function saveData(data, jsonResultDir, csvResultDir, fileIndex) {
   const jsonPath = path.join(jsonResultDir, `saas_data_${fileIndex}.json`);
   const csvPath = path.join(csvResultDir, `saas_data_${fileIndex}.csv`);
 
-  // Save JSON data
   await fs.writeFile(jsonPath, JSON.stringify(data, null, 2));
   
-  // Prepare CSV content with headers
-  const csvHeaders = getCSVHeaders(data);
   const csvWriter = createObjectCsvWriter({
     path: csvPath,
     header: Object.keys(data[0]).map(key => ({ id: key, title: key }))
   });
 
-  // Save CSV data
   await csvWriter.writeRecords(data);
-
   console.log(clc.green(`Saved file: saas_data_${fileIndex}`));
 }
 
-async function getUrlsToScrape(sitemapDir) {
-  const allUrlsFile = await fs.readFile(path.join(sitemapDir, 'all_urls.json'), 'utf-8');
-  const allUrls = MAX_URLS ? JSON.parse(allUrlsFile).slice(0, MAX_URLS) : JSON.parse(allUrlsFile);
+async function getUrlsToScrape(allUrlsFilePath, maxUrls) {
+  const allUrlsFile = await fs.readFile(allUrlsFilePath, 'utf-8');
+  const allUrls = maxUrls ? JSON.parse(allUrlsFile).slice(0, maxUrls) : JSON.parse(allUrlsFile);
   console.log(clc.blue(`Using ${allUrls.length} URLs for processing.`));
   return [...new Set(allUrls)];
 }
-async function run_scraper() {
-  console.log(clc.green.bold('Starting the simplified large-scale SaaS scraping process...'));
-  
-  const jsonResultDir = path.join(__dirname, 'scraping_results');
-  const csvResultDir = path.join(__dirname, 'scraping_results');
-  const sitemapDir = path.join(__dirname, 'sitemap_urls');
-  
-  try {
-    await ensureDirectoryExists(jsonResultDir);
-    await ensureDirectoryExists(csvResultDir);
-    
-    let urlsToScrape = await getUrlsToScrape(sitemapDir);
-    const { lastUrl, processedCount: startProcessedCount } = await getLastProcessedInfo(jsonResultDir);
 
-    let startIndex = lastUrl ? urlsToScrape.indexOf(lastUrl) + 1 : 0;
-    if (startIndex === -1) startIndex = 0;
-
-    const totalUrls = urlsToScrape.length;
-    let allErrors = [];
-    let processedCount = startProcessedCount;
-    let currentData = [];
-
-    const startTime = Date.now();
-    
-    for (let i = startIndex; i < totalUrls; i += BATCH_SIZE) {
-      const batch = urlsToScrape.slice(i, i + BATCH_SIZE);
-      const { processedInBatch, errors, currentData: newData } = await processBatch(batch, i, totalUrls, jsonResultDir, csvResultDir, processedCount, startTime);
-      
-      allErrors.push(...errors);
-      processedCount += processedInBatch;
-      currentData.push(...newData);
-
-      // Save any full batches of data
-      while (currentData.length >= RECORDS_PER_FILE) {
-        const fileIndex = Math.floor(processedCount / RECORDS_PER_FILE) - 1;
-        await saveData(currentData.slice(0, RECORDS_PER_FILE), jsonResultDir, csvResultDir, fileIndex);
-        currentData = currentData.slice(RECORDS_PER_FILE);
-      }
-
-      // Update last processed info
-      await saveLastProcessedInfo(jsonResultDir, urlsToScrape[i + processedInBatch - 1], processedCount);
-    }
-
-    // Save any remaining data
-    if (currentData.length > 0) {
-      const fileIndex = Math.floor(processedCount / RECORDS_PER_FILE);
-      await saveData(currentData, jsonResultDir, csvResultDir, fileIndex);
-    }
-
-    console.log(clc.green.bold('\nAll URLs processed.'));
-    logFinalStats(startTime, totalUrls - startIndex, allErrors);
-  } catch (error) {
-    console.error(clc.red.bold('An unexpected error occurred during the scraping process:'), error);
-  }
-}
-
-
-
-async function saveLastProcessedInfo(jsonResultDir, lastUrl, processedCount) {
-  const infoPath = path.join(jsonResultDir, 'last_processed_info.json');
-  const infoData = JSON.stringify({ lastUrl, processedCount });
-  await fs.writeFile(infoPath, infoData);
-}
-async function getResumeInfo(jsonResultDir, urlsToScrape) {
-  try {
-    const { url: lastProcessedUrl, fileIndex: startFileIndex } = await getLastProcessedInfo(jsonResultDir);
-    let startIndex = 0;
-    if (lastProcessedUrl) {
-      const lastProcessedIndex = urlsToScrape.indexOf(lastProcessedUrl);
-      if (lastProcessedIndex !== -1) {
-        if (lastProcessedIndex === urlsToScrape.length - 1) {
-          console.log(clc.yellow('All URLs in the current set have already been processed.'));
-          console.log(clc.green.bold('Scraping process complete. No new URLs to process.'));
-          process.exit(0);
-        }
-        startIndex = lastProcessedIndex + 1;
-        console.log(clc.magenta(`Resuming from URL: ${urlsToScrape[startIndex]}`));
-      } else {
-        console.log(clc.yellow(`Last processed URL not found in current set. Starting from the beginning.`));
-      }
-    }
-    return { startIndex, currentFileIndex: startFileIndex };
-  } catch (error) {
-    console.log(clc.yellow('No resume information found. Starting from the beginning.'));
-    return { startIndex: 0, currentFileIndex: 0 };
-  }
-}
-async function processBatch(batch, batchStartIndex, totalUrls, jsonResultDir, csvResultDir, processedCount, startTime) {
-  const limit = pLimit(RATE_LIMIT);
+async function processBatch(batch, batchStartIndex, totalUrls, jsonResultDir, csvResultDir, processedCount, startTime, rateLimit) {
+  const limit = pLimit(rateLimit);
   let currentData = [];
   let errors = [];
   let localProcessedCount = 0;
@@ -473,41 +306,15 @@ async function processBatch(batch, batchStartIndex, totalUrls, jsonResultDir, cs
     return limit(async () => {
       try {
         const result = await processUrl(url);
-        const overallIndex = batchStartIndex + index;
-        
         if (result.data) {
           currentData.push(result.data);
           localProcessedCount++;
-
-          if (currentData.length >= RECORDS_PER_FILE) {
-            const fileIndex = Math.floor((processedCount + localProcessedCount) / RECORDS_PER_FILE) - 1;
-            await saveData(currentData, jsonResultDir, csvResultDir, fileIndex);
-            currentData = [];
-          }
         } else if (result.error) {
           errors.push(result.error);
         }
 
         // Log progress
-        const currentTime = Date.now();
-        const elapsedTime = (currentTime - startTime) / 1000;
-        const currentProcessed = processedCount + localProcessedCount;
-        const percentComplete = ((currentProcessed) / totalUrls * 100).toFixed(2);
-        const estimatedTotalTime = (elapsedTime / currentProcessed) * totalUrls;
-        const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
-
-        console.log(
-          clc.cyan(`[${percentComplete}%] Processing URL ${currentProcessed}/${totalUrls}: ${url}`) +
-          clc.yellow(` | Elapsed: ${formatTime(elapsedTime)}`) +
-          clc.green(` | Remaining: ${formatTime(remainingTime)}`)
-        );
-
-        // Add the requested logging feature
-        if (currentProcessed % 100 === 0) {
-          const logMessage = `[${percentComplete}%] Processed ${currentProcessed}/${totalUrls} URLs | Elapsed: ${formatTime(elapsedTime)} | Remaining: ${formatTime(remainingTime)}`;
-          logger.info(logMessage);
-        }
-
+        logProgress(processedCount + localProcessedCount, totalUrls, startTime);
         return result;
       } catch (error) {
         errors.push({ url, error: error.message });
@@ -517,29 +324,20 @@ async function processBatch(batch, batchStartIndex, totalUrls, jsonResultDir, cs
   });
 
   await Promise.all(processingPromises);
-
   return { processedInBatch: localProcessedCount, errors, currentData };
 }
 
+function logProgress(currentProcessed, totalUrls, startTime) {
+  const currentTime = Date.now();
+  const elapsedTime = (currentTime - startTime) / 1000;
+  const percentComplete = ((currentProcessed) / totalUrls * 100).toFixed(2);
+  const estimatedTotalTime = (elapsedTime / currentProcessed) * totalUrls;
+  const remainingTime = Math.max(0, estimatedTotalTime - elapsedTime);
 
-
-function logFinalStats(startTime, processedUrls, allErrors) {
-  const totalTime = (Date.now() - startTime) / 1000;
-  console.log(clc.blue(`Total time taken: ${formatTime(totalTime)}`));
-  console.log(clc.blue(`Total SaaS products successfully processed: ${processedUrls - allErrors.length}`));
-  
-  if (allErrors.length > 0) {
-    console.log(clc.red('\nErrors encountered:'));
-    allErrors.forEach(({ url, error }) => {
-      console.log(clc.red(`- ${url}: ${error}`));
-    });
-    
-    const errorLogPath = path.join(__dirname, 'error_log.json');
-    fs.writeFile(errorLogPath, JSON.stringify(allErrors, null, 2))
-      .then(() => console.log(clc.yellow(`Error log saved to: ${errorLogPath}`)))
-      .catch(err => console.error(clc.red(`Failed to save error log: ${err.message}`)));
-  }
+  const logMessage = `[${percentComplete}%] Processed ${currentProcessed}/${totalUrls} URLs | Elapsed: ${formatTime(elapsedTime)} | Remaining: ${formatTime(remainingTime)}`;
+  console.log(clc.cyan(logMessage));
 }
+
 function formatTime(seconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -547,5 +345,77 @@ function formatTime(seconds) {
   return `${hours}h ${minutes}m ${remainingSeconds}s`;
 }
 
+async function scrapeSaasHub({
+  outputDir,
+  allUrlsFilePath,
+  batchSize = 5000,
+  rateLimit = 30,
+    maxUrls = 0
+}) {
+  console.log(clc.green.bold('Starting SaasHub scraping process...'));
   
-module.exports = run_scraper;
+  const jsonResultDir = path.join(outputDir, 'json');
+  const csvResultDir = path.join(outputDir, 'csv');
+  
+  try {
+    await ensureDirectoryExists(jsonResultDir);
+    await ensureDirectoryExists(csvResultDir);
+    
+    const urlsToScrape = await getUrlsToScrape(allUrlsFilePath, maxUrls);
+    const totalUrls = urlsToScrape.length;
+    let allErrors = [];
+    let processedCount = 0;
+    let currentData = [];
+    const startTime = Date.now();
+    
+    for (let i = 0; i < totalUrls; i += batchSize) {
+      const batch = urlsToScrape.slice(i, i + batchSize);
+      const { processedInBatch, errors, currentData: newData } = await processBatch(
+        batch,
+        i,
+        totalUrls,
+        jsonResultDir,
+        csvResultDir,
+        processedCount,
+        startTime,
+        rateLimit
+      );
+      
+      allErrors.push(...errors);
+      processedCount += processedInBatch;
+      currentData.push(...newData);
+
+      if (currentData.length >= batchSize) {
+        const fileIndex = Math.floor(processedCount / batchSize) - 1;
+        await saveData(currentData.slice(0, batchSize), jsonResultDir, csvResultDir, fileIndex);
+        currentData = currentData.slice(batchSize);
+      }
+    }
+
+    // Save any remaining data
+    if (currentData.length > 0) {
+      const fileIndex = Math.floor(processedCount / batchSize);
+      await saveData(currentData, jsonResultDir, csvResultDir, fileIndex);
+    }
+
+    console.log(clc.green.bold('\nAll URLs processed.'));
+    
+    // Save error summary
+    if (allErrors.length > 0) {
+      const errorLogPath = path.join(outputDir, 'error_log.json');
+      await fs.writeFile(errorLogPath, JSON.stringify(allErrors, null, 2));
+      console.log(clc.red(`\nEncountered ${allErrors.length} errors. See ${errorLogPath} for details.`));
+    }
+
+    return {
+      processed: processedCount,
+      errors: allErrors
+    };
+    
+  } catch (error) {
+    console.error(clc.red.bold('An unexpected error occurred during the scraping process:'), error);
+    throw error;
+  }
+}
+
+module.exports = scrapeSaasHub;
